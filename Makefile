@@ -29,7 +29,7 @@ NVCC_LIBS=
 # CUDA library directory:
 CUDA_LIB_DIR= -L$(CUDA_ROOT_DIR)/lib64
 # CUDA include directory:
-CUDA_INC_DIR= -I$(CUDA_ROOT_DIR)/include -I/home/czh5/seq/cudnn_attn/cutlass/include -I/home/czh5/seq/cudnn_attn/cutlass/examples/common
+CUDA_INC_DIR= -I$(CUDA_ROOT_DIR)/include -I/home/czh5/seq/cudnn_attn/cutlass/include -I/home/czh5/seq/cudnn_attn/cutlass/tools/util/include -I/home/czh5/seq/cudnn_attn/cutlass/examples/common
 # CUDA linking libraries:
 CUDA_LINK_LIBS= -lcudart -lcublas
 
@@ -60,14 +60,16 @@ INC_DIR = include
 
 # Target executable name:
 # EXE = $(OBJ_DIR)/cublas_gemm
-EXE = $(OBJ_DIR)/cutlass_gemm
+# EXE = $(OBJ_DIR)/cutlass_gemm
+EXE = $(OBJ_DIR)/tune_gemm
 
 # Object files:
 # OBJS = $(OBJ_DIR)/main.o $(OBJ_DIR)/cuda_kernel.o
 # OBJS = cudnn_attn.cpp
 # OBJS = test1.cu
 # OBJS = cublas_gemm.cpp
-OBJS = cutlass_gemm.cu
+# OBJS = cutlass_gemm.cu
+OBJS = tune_gemm.cu
 
 ##########################################################
 

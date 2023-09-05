@@ -58,6 +58,11 @@
 #include <sstream>
 #include <vector>
 
+// CUDA runtime
+#include <cuda_runtime.h>
+#include <cublas_v2.h>
+#include "helper_cuda.h"
+
 // Helper methods to check for errors
 #include "helper.h"
 
@@ -66,12 +71,11 @@
 //
 
 // Defines cutlass::gemm::device::Gemm, the generic Gemm computation template class.
-#include "cutlass/cutlass.h"
 #include "cutlass/gemm/device/gemm.h"
 
+#include "cutlass/cutlass.h"
 #include "cutlass/util/command_line.h"
 #include "cutlass/util/host_tensor.h"
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // This function defines a CUTLASS GEMM kernel instantiation, constructs its parameters object,
@@ -81,7 +85,6 @@
 
 /// Define a CUTLASS GEMM template and launch a GEMM kernel.
 cudaError_t CutlassSgemmNN(
-  cudaStream_t stream_cut,
   int M,
   int N,
   int K,
@@ -92,7 +95,8 @@ cudaError_t CutlassSgemmNN(
   int ldb,
   float beta,
   float *C,
-  int ldc) {
+  int ldc,
+  cudaStream_t stream) {
 
   // Define type definition for single-precision CUTLASS GEMM with column-major
   // input matrices and 128x128x8 threadblock tile size (chosen by default).
@@ -103,15 +107,17 @@ cudaError_t CutlassSgemmNN(
   //
   // To view the full gemm device API interface, see `cutlass/gemm/device/gemm.h`
 
-  using ColumnMajor = cutlass::layout::ColumnMajor;
+//   using ColumnMajor = cutlass::layout::ColumnMajor;
 
 //   using CutlassGemm = cutlass::gemm::device::Gemm<float,        // Data-type of A matrix
 //                                                   ColumnMajor,  // Layout of A matrix
 //                                                   float,        // Data-type of B matrix
 //                                                   ColumnMajor,  // Layout of B matrix
 //                                                   float,        // Data-type of C matrix
-//                                                   ColumnMajor>; 
+//                                                   ColumnMajor>; // Layout of C matrix
 
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // The code section below describes datatype for input, output matrices and computation between
 // elements in input matrices.
@@ -123,10 +129,13 @@ using ElementOutput = float;                        // <- data type of elements 
 
 // The code section below describes matrix layout of input and output matrices. Column Major for
 // Matrix A, Row Major for Matrix B and Row Major for Matrix C
+// using LayoutInputA = cutlass::layout::RowMajor;
+// using LayoutInputB = cutlass::layout::ColumnMajor;
+// using LayoutOutput = cutlass::layout::RowMajor;
+
 using LayoutInputA = cutlass::layout::ColumnMajor;
 using LayoutInputB = cutlass::layout::ColumnMajor;
 using LayoutOutput = cutlass::layout::ColumnMajor;
-
 // This code section describes whether you want to use tensor cores or regular SIMT cores on GPU SM
 using MMAOp = cutlass::arch::OpClassTensorOp;
 
@@ -135,7 +144,7 @@ using SmArch = cutlass::arch::Sm80;
 
 // This code section describes the tile size a thread block will compute
 using ShapeMMAThreadBlock =
-    cutlass::gemm::GemmShape<128, 128, 16>;  // <- threadblock tile M = 128, N = 128, K = 16
+    cutlass::gemm::GemmShape<256, 128, 16>;  // <- threadblock tile M = 256, N = 128, K = 16
 // This code section describes tile size a warp will compute
 using ShapeMMAWarp = cutlass::gemm::GemmShape<64, 64, 16>;  // <- warp tile M = 64, N = 64, K = 16
 // This code section describes the size of MMA op
@@ -192,18 +201,17 @@ using CutlassGemm = cutlass::gemm::device::Gemm<ElementInputA,
                               {C, ldc},    // Tensor-ref for destination matrix D (may be different memory than source C matrix)
                               {alpha, beta}); // Scalars used in the Epilogue
 
-  //
-  // Launch the CUTLASS GEMM kernel.
-  //
-  
-    // Using the arguments, query for extra workspace required for matrix multiplication computation
+  // Using the arguments, query for extra workspace required for matrix multiplication computation
   size_t workspace_size = CutlassGemm::get_workspace_size(args);
 
   // Allocate workspace memory
   cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
 
-  cutlass::Status status = gemm_operator(args, workspace.get(), stream_cut);
-//   cutlass::Status status = gemm_operator(args);
+  //
+  // Launch the CUTLASS GEMM kernel.
+  //
+  
+  cutlass::Status status = gemm_operator(args, workspace.get(), stream);
 
   //
   // Return a cudaError_t if the CUTLASS GEMM operator returned an error code.
@@ -216,6 +224,37 @@ using CutlassGemm = cutlass::gemm::device::Gemm<ElementInputA,
   // Return success, if no errors were encountered.
   return cudaSuccess;
 }
+
+cudaError_t CublasSgemm(
+  int M,
+  int N,
+  int K,
+  float alpha,
+  float const *A,
+  int lda,
+  float const *B,
+  int ldb,
+  float beta,
+  float *C,
+  int ldc,
+  cudaStream_t stream) {
+
+    cublasHandle_t handle;
+    checkCudaErrors(cublasCreate(&handle));
+    checkCudaErrors(cublasSetStream(handle, stream));
+    checkCudaErrors(cublasSgemm(handle,
+                    CUBLAS_OP_N, CUBLAS_OP_N,
+                    M, N, K,
+                    &alpha,
+                    A, lda,
+                    B, ldb,
+                    &beta,
+                    C, ldc));
+
+  cudaError_t result = cudaSuccess;
+  return result;
+  }
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -355,9 +394,41 @@ cudaError_t ReferenceGemm(
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// Result structure
+struct ResultS {
+
+  double runtime_ms;
+  double gflops;
+  cutlass::Status status;
+  cudaError_t error;
+  bool passed;
+
+  //
+  // Methods
+  //
+
+  ResultS(
+    double runtime_ms = 0,
+    double gflops = 0,
+    cutlass::Status status = cutlass::Status::kSuccess,
+    cudaError_t error = cudaSuccess
+  ):
+    runtime_ms(runtime_ms), gflops(gflops), status(status), error(error), passed(true) { }
+};
+
+/// Compute performance in GFLOP/s
+double gflops(double runtime_s, int M, int N, int K, int iterations) {
+
+// Number of real-valued multiply-adds 
+int64_t fmas = M * N * N * iterations;
+
+// Two flops per multiply-add
+return 2.0 * double(fmas) / double(1.0e9) / runtime_s;
+}
+
 /// Allocate several matrices in GPU device memory and call a single-precision
-/// CUTLASS GEMM kernel.
-cudaError_t TestCutlassGemm(int M, int N, int K, float alpha, float beta) {
+/// CUTLASS cuBLAS GEMM kernel.
+cudaError_t CompareGemm(int M, int N, int K, float alpha, float beta) {
   cudaError_t result;
 
   //
@@ -378,23 +449,24 @@ cudaError_t TestCutlassGemm(int M, int N, int K, float alpha, float beta) {
   float *C_cutlass;
   float *C_reference;
 
-  float *A1;
-  float *B1;
-  float *C_cutlass1;
+  float *A_p0;
+  float *A_p1;
+  float *B_p0;
+  float *B_p1;
+  float *C_cutlass_p0;
+  float *C_cutlass_p1;
 
   //
   // Allocate matrices in GPU device memory with arbitrary seeds.
   //
 
   result = AllocateMatrix(&A, M, K, 0);
-  result = AllocateMatrix(&A1, M, K, 0);
 
   if (result !=  cudaSuccess) {
     return result;
   }
 
   result = AllocateMatrix(&B, K, N, 17);
-  result = AllocateMatrix(&B1, K, N, 17);
 
   if (result !=  cudaSuccess) {
     cudaFree(A);
@@ -402,7 +474,6 @@ cudaError_t TestCutlassGemm(int M, int N, int K, float alpha, float beta) {
   }
 
   result = AllocateMatrix(&C_cutlass, M, N, 101);
-  result = AllocateMatrix(&C_cutlass1, M, N, 101);
 
   if (result != cudaSuccess) {
     cudaFree(A);
@@ -433,20 +504,105 @@ cudaError_t TestCutlassGemm(int M, int N, int K, float alpha, float beta) {
     return result;
   }
 
-  //
-  // Launch CUTLASS GEMM.
-  //
+  result = AllocateMatrix(&A_p0, M, K, 66);
+  result = AllocateMatrix(&A_p1, M, K, 66);
+  result = AllocateMatrix(&B_p0, K, N/2, 66);
+  result = AllocateMatrix(&B_p1, K, N/2, 66);
+  result = AllocateMatrix(&C_cutlass_p0, M, N/2, 66);
+  result = AllocateMatrix(&C_cutlass_p1, M, N/2, 66);
 
     cudaStream_t stream0;
     cudaStreamCreate(&stream0);
     cudaStream_t stream1;
     cudaStreamCreate(&stream1);
 
-        for (int j = 0; j < 10; j++)
-        {
-    result = CutlassSgemmNN(stream0, M, N, K, alpha, A, lda, B, ldb, beta, C_cutlass, ldc);
-    result = CutlassSgemmNN(stream1, M, N, K, alpha, A1, lda, B1, ldb, beta, C_cutlass1, ldc);
-        }
+  ResultS result_s;
+
+  // warmup
+  result = CutlassSgemmNN(M, N/2, K, alpha, A_p0, lda, B_p0, ldb, beta, C_cutlass_p0, ldc, stream0);
+  CublasSgemm(M, N, K, alpha, A, lda, B, ldb, beta, C_cutlass, ldc, stream0);
+
+  //
+  // Construct events
+  //
+  cudaEvent_t events[2];
+
+  for (auto & event : events) {
+    result_s.error = cudaEventCreate(&event);
+    if (result_s.error != cudaSuccess) {
+      std::cerr << "cudaEventCreate() failed: " << cudaGetErrorString(result_s.error) << std::endl;
+    }
+  }
+
+  // Record an event at the start of a series of GEMMs
+  result_s.error = cudaEventRecord(events[0]);
+  if (result_s.error != cudaSuccess) {
+    std::cerr << "cudaEventRecord() failed: " << cudaGetErrorString(result_s.error) << std::endl;
+  }
+
+  // Launch CUTLASS GEMM.
+    int iterations = 10;
+  for (int iter = 0; iter < iterations; ++iter) {
+    result = CutlassSgemmNN(M, N/2, K, alpha, A_p0, lda, B_p0, ldb, beta, C_cutlass_p0, ldc, stream0);
+    result = CutlassSgemmNN(M, N/2, K, alpha, A_p1, lda, B_p1, ldb, beta, C_cutlass_p1, ldc, stream1);
+  }
+
+  // Record an event when the GEMMs are complete
+  result_s.error = cudaEventRecord(events[1]);
+  if (result_s.error != cudaSuccess) {
+    std::cerr << "cudaEventRecord() failed: " << cudaGetErrorString(result_s.error) << std::endl;
+  }
+
+  // Wait for work on the device to complete.
+  result_s.error = cudaEventSynchronize(events[1]);
+  if (result_s.error != cudaSuccess) {
+    std::cerr << "cudaEventSynchronize() failed: " << cudaGetErrorString(result_s.error) << std::endl;
+  }
+
+  // Measure elapsed runtime
+  float runtime_ms = 0;
+  result_s.error = cudaEventElapsedTime(&runtime_ms, events[0], events[1]);
+  if (result_s.error != cudaSuccess) {
+    std::cerr << "cudaEventElapsed() failed: " << cudaGetErrorString(result_s.error) << std::endl;
+  }
+
+  // Compute average runtime and GFLOPs.
+  result_s.runtime_ms = double(runtime_ms) / double(iterations);
+  result_s.gflops = gflops(result_s.runtime_ms / 1000.0, M, N, K, iterations);
+    std::cout << "CUTLASS Runtime: " << result_s.runtime_ms << " ms" << std::endl;
+    std::cout << "CUTLASS GFLOPs: " << result_s.gflops << std::endl;
+
+
+  ///////////////////////////////////////////////////////////////////////////////////////////////////
+ // Record an event at the start of a series of GEMMs
+  cudaEventRecord(events[0]);
+
+  // Launch cuBLAS GEMM.
+  for (int iter = 0; iter < iterations; ++iter) {
+    CublasSgemm(M, N, K, alpha, A, lda, B, ldb, beta, C_cutlass, ldc, stream0);
+  }
+
+  // Record an event when the GEMMs are complete
+  cudaEventRecord(events[1]);
+
+  // Wait for work on the device to complete.
+  cudaEventSynchronize(events[1]);
+
+  // Measure elapsed runtime
+  runtime_ms = 0;
+  cudaEventElapsedTime(&runtime_ms, events[0], events[1]);
+
+  // Compute average runtime and GFLOPs.
+  double cublas_runtime_ms = double(runtime_ms) / double(iterations);
+  double cublas_gflops = gflops(cublas_runtime_ms / 1000.0, M, N, K, iterations);
+    std::cout << "cuBLAS Runtime: " << cublas_runtime_ms << " ms" << std::endl;
+    std::cout << "cuBLAS GFLOPs: " << cublas_gflops << std::endl;
+
+  // Cleanup
+  for (auto event : events) {
+    (void)cudaEventDestroy(event);
+  }
+
   if (result != cudaSuccess) {
     std::cerr << "CUTLASS GEMM kernel failed: "
       << cudaGetErrorString(result) << std::endl;
@@ -547,7 +703,10 @@ int main(int argc, const char *arg[]) {
   //
 
   // GEMM problem dimensions.
-  int problem[3] = { 128, 128, 128 };
+//   int problem[3] = { 128, 128, 128 };
+//   int problem[3] = { 2048, 256, 2048 };
+//   int problem[3] = { 4096, 256, 4096 };
+  int problem[3] = { 4096, 256, 2048 };
 
   for (int i = 1; i < argc && i < 4; ++i) {
     std::stringstream ss(arg[i]);
@@ -566,7 +725,7 @@ int main(int argc, const char *arg[]) {
   // Run the CUTLASS GEMM test.
   //
 
-  cudaError_t result = TestCutlassGemm(
+  cudaError_t result = CompareGemm(
     problem[0],     // GEMM M dimension
     problem[1],     // GEMM N dimension
     problem[2],     // GEMM K dimension

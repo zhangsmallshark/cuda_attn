@@ -17,7 +17,11 @@ class LinearCutFunction(Function):
         print(output.shape)
         variables = [input, weights]
         ctx.save_for_backward(*variables)
-        refer_out = torch.mm(input, weights.transpose())
+        # refer_out = torch.mm(input, torch.transpose(weights, 0, 1))
+        # if torch.equal(refer_out, output):
+        #     print('test pass')
+        # else:
+        #     print('test fail')
         return output
 
     @staticmethod

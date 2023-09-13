@@ -60,14 +60,20 @@ using ElementInputA = float;                        // <- data type of elements 
 using ElementInputB = float;                        // <- data type of elements in input matrix B
 using ElementOutput = float;                        // <- data type of elements in output matrix D
 
-// The code section below describes matrix layout of input and output matrices. Column Major for
-// Matrix A, Row Major for Matrix B and Row Major for Matrix C
-// using LayoutInputA = cutlass::layout::RowMajor;
-// using LayoutInputB = cutlass::layout::ColumnMajor;
-// using LayoutOutput = cutlass::layout::RowMajor;
+// describes matrix layout of input and output matrices. 
+// if (trans_a) {
+//     using LayoutInputA = cutlass::layout::ColumnMajor; 
+// } else {
+//     using LayoutInputA = cutlass::layout::RowMajor; 
+// }
 
-using LayoutInputA = trans_a? cutlass::layout::ColumnMajor : cutlass::layout::RowMajor;
-using LayoutInputB = trans_b? cutlass::layout::ColumnMajor : cutlass::layout::RowMajor;
+// if (trans_b) {
+//     using LayoutInputB = cutlass::layout::ColumnMajor; 
+// } else {
+//     using LayoutInputB = cutlass::layout::RowMajor; 
+// }
+using LayoutInputA = cutlass::layout::RowMajor;
+using LayoutInputB = cutlass::layout::ColumnMajor; 
 using LayoutOutput = cutlass::layout::RowMajor;
 
 // This code section describes whether you want to use tensor cores or regular SIMT cores on GPU SM
@@ -225,10 +231,10 @@ std::vector<torch::Tensor> linear_cutlass_backward(
     // result = CutlassSgemm(M, N, K, alpha, grad_output.data_ptr<float>(), lda, one_vec.data_ptr<float>(), ldb, beta, grad_biases, ldc, stream0);
 
 	// dw = x * (dy)^T
-    CutlassSgemm(M, N, K, alpha, input.data_ptr<float>(), lda, grad_output.data_ptr<float>(), ldb, beta, grad_weights.data_ptr<float>(), ldc, stream0);
+    CutlassSgemm(false, true, M, N, K, alpha, input.data_ptr<float>(), lda, grad_output.data_ptr<float>(), ldb, beta, grad_weights.data_ptr<float>(), ldc, stream0);
 
 	// dx = W * dy
-    CutlassSgemm(M, N, K, alpha, weights.data_ptr<float>(), lda, grad_output.data_ptr<float>(), ldb, beta, grad_input.data_ptr<float>(), ldc, stream0);
+    CutlassSgemm(false, true, M, N, K, alpha, weights.data_ptr<float>(), lda, grad_output.data_ptr<float>(), ldb, beta, grad_input.data_ptr<float>(), ldc, stream0);
 
   return {grad_input, grad_weights, grad_biases};
 }

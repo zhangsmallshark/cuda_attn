@@ -9,6 +9,10 @@ import os
 from linear_cut1 import LinearCut
 
 
+batch_size = 4
+in_features = 4
+out_features = 4
+
 class SimpleModel(nn.Module):
     def __init__(self):
         super(SimpleModel, self).__init__()
@@ -16,12 +20,12 @@ class SimpleModel(nn.Module):
         # self.fc1   = nn.Linear(1024, 1024)
         # self.fc2   = nn.Linear(1024, 1024)
 
-        self.fc1   = LinearCut(1024, 1024)
-        self.fc2   = LinearCut(1024, 1024)
+        self.fc1   = LinearCut(in_features, out_features)
+        # self.fc2   = LinearCut(out_features, out_features)
 
     def forward(self, x):
         out = self.fc1(x)
-        out = self.fc2(out)
+        # out = self.fc2(out)
 
         return out
     
@@ -36,8 +40,8 @@ def train(net,criterion,optimizer,trainloader,device):
 
     # for batch_idx, (data, targets) in enumerate(trainloader):
     for batch_idx in range(10):
-        data = torch.randint(0, 256, (1024, 1024), dtype=torch.float32)
-        targets = torch.randint(0, 1024, (1024, 1024), dtype=torch.float32)
+        data = torch.randint(0, 7, (batch_size, in_features), dtype=torch.float32)
+        targets = torch.randint(0, 8, (batch_size, ), dtype=torch.float32)
 
         data, targets = data.to(device), targets.to(device)
 
@@ -69,8 +73,8 @@ def test(net,criterion,testloader,device):
 
         # for batch_idx, (data, targets) in enumerate(testloader):
         for batch_idx in range(5):
-            data = torch.randint(0, 256, (1024, 1024), dtype=torch.float32)
-            targets = torch.randint(0, 1024, (1024, ), dtype=torch.float32)
+            data = torch.randint(0, 7, (batch_size, in_features), dtype=torch.float32)
+            targets = torch.randint(0, 8, (batch_size, ), dtype=torch.float32)
 
             data, targets = data.to(device), targets.to(device)
 

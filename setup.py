@@ -1,11 +1,11 @@
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-CUDA_ROOT_DIR="/soft/compilers/cudatoolkit/cuda-11.8.0"
+CUDA_ROOT_DIR="/usr/local/cuda"
 
 setup(
     name='linear_cutlass',
-    include_dirs=[f"{CUDA_ROOT_DIR}/include", "/home/czh5/seq/cudnn_attn/cutlass/include", "/home/czh5/seq/cudnn_attn/cutlass/tools/util/include", "/home/czh5/seq/cudnn_attn/cutlass/examples/common"],
+    include_dirs=[f"{CUDA_ROOT_DIR}/include", "/home/guanhuawang/cutlass/include", "/home/guanhuawang/cutlass/tools/util/include", "/home/guanhuawang/cutlass/examples/common"],
     ext_modules=[
         CUDAExtension('linear_cutlass', [
             'linear_cutlass.cpp',

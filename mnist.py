@@ -6,12 +6,12 @@ import torchvision
 import torchvision.transforms as transforms
 import os
 
-from linear_cut1 import LinearCut
+from linear_cut import LinearCut
 
 
-batch_size = 4
+batch_size = 2
 in_features = 4
-out_features = 4
+out_features = 8
 
 class SimpleModel(nn.Module):
     def __init__(self):
@@ -48,6 +48,7 @@ def train(net,criterion,optimizer,trainloader,device):
         optimizer.zero_grad()
         outputs = net(data)
         loss = criterion(outputs, targets)
+        # loss = outputs.sum()
 
         loss.backward()
 
@@ -132,7 +133,7 @@ def main():
     for epoch in range(1, epochs+1):
         print("=====================================================================")
         print("Epoch : {}".format(epoch))
-        # train(net,criterion,optimizer,trainloader,device)
+        train(net,criterion,optimizer,trainloader,device)
         test(net,criterion,testloader,device)
 
         torch.save(net.state_dict(), os.path.join(save_path,'epoch_{}.pth'.format(epoch)))
